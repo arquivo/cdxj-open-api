@@ -1,44 +1,39 @@
 openapi: 3.0.3
 info:
-  title: pywb CDX(J) Server API
+  title: Arquivo.pt CDX(J) Server API
   version: "1.0.0"
   description: |
-    The CDX(J) Server API implemented by [pywb](https://github.com/webrecorder/pywb) exposes an
-    index of captured web resources ("CDX" records) for a collection. It allows clients to look up,
-    filter, sort, and paginate captures for a given URL.
+    The CDX(J) Server API exposed by [Arquivo.pt](https://arquivo.pt) at `/wayback/cdx`, backed by
+    [pywb](https://github.com/webrecorder/pywb)'s CDX(J) Server API. It allows clients to look up,
+    filter, sort, and paginate captures for a given URL in the Arquivo.pt archive.
 
     A record in the index describes one capture of a URL at a point in time, plus enough metadata
     (mime type, HTTP status, content digest, and the location of the content in a WARC/CDX file) to
     later retrieve the actual archived resource.
 
     This specification documents the query endpoint mounted by pywb's front-end app
-    (`FrontEndApp.serve_cdx`, typically at `<collection>/cdx`) and the query semantics implemented in
-    `pywb.warcserver.index.query.CDXQuery` / `pywb.warcserver.index.cdxops`.
+    (`FrontEndApp.serve_cdx`) and the query semantics implemented in
+    `pywb.warcserver.index.query.CDXQuery` / `pywb.warcserver.index.cdxops`, as deployed for the
+    `wayback` collection at [arquivo.pt/wayback/cdx](https://arquivo.pt/wayback/cdx?url=publico.pt).
 
-    Notes on deployments: the collection path segment, endpoint name (default `cdx`, configurable via
-    `cdx_api_endpoint`), and the default `output` format are deployment-specific. Some public
-    deployments (e.g. Arquivo.pt) default `output` to `text`; upstream pywb's `IndexHandler` defaults
-    to `cdxj`.
+    Note: Arquivo.pt's `output` default is `text`; upstream pywb's `IndexHandler` defaults to `cdxj`.
   contact:
-    name: pywb
-    url: https://github.com/webrecorder/pywb
+    name: Arquivo.pt
+    url: https://arquivo.pt
   license:
     name: Apache-2.0
     url: https://github.com/webrecorder/pywb/blob/main/LICENSE
 
 servers:
-  - url: "https://{host}"
-    variables:
-      host:
-        default: localhost:8080
-        description: Host (and optional port) of the pywb deployment.
+  - url: "https://arquivo.pt"
+    description: Arquivo.pt production API
 
 tags:
   - name: CDX
     description: Query the capture index for a collection.
 
 paths:
-  "/{coll}/cdx":
+  "/wayback/cdx":
     get:
       operationId: queryCdx
       tags: [CDX]
@@ -47,15 +42,6 @@ paths:
         Look up captures matching `url`, optionally filtered, sorted, and paginated. Exactly one of
         the supported `output` formats is returned; see the response content types below.
       parameters:
-        - name: coll
-          in: path
-          required: true
-          schema:
-            type: string
-          description: >-
-            Name of the collection to query (the path segment configured for this deployment; use
-            the deployment's root collection identifier if it serves a single collection).
-          example: wayback
         - $ref: "#/components/parameters/Url"
         - $ref: "#/components/parameters/MatchType"
         - $ref: "#/components/parameters/From"
@@ -107,9 +93,9 @@ paths:
                 type: string
               description: RFC 7089 Memento TimeMap (`output=link`).
               example: |
-                <https://web.archive.example/>; rel="original",
-                <https://web.archive.example/timemap/link/https://publico.pt/>; rel="self"; type="application/link-format",
-                <https://web.archive.example/20200101120000/https://publico.pt/>; rel="memento"; datetime="Wed, 01 Jan 2020 12:00:00 GMT"
+                <https://publico.pt/>; rel="original",
+                <https://arquivo.pt/wayback/timemap/link/https://publico.pt/>; rel="self"; type="application/link-format",
+                <https://arquivo.pt/wayback/20200101120000/https://publico.pt/>; rel="memento"; datetime="Wed, 01 Jan 2020 12:00:00 GMT"
             application/json:
               schema:
                 $ref: "#/components/schemas/PageInfo"
@@ -246,14 +232,15 @@ components:
       required: false
       description: |
         Response format:
-        - `cdxj` — default in upstream pywb. `<urlkey> <timestamp> {json}` per line.
+        - `text` — default for this API. Native/legacy space-separated CDX format.
         - `json` — one JSON object per line (newline-delimited JSON), recommended for analysis.
-        - `text` — native/legacy space-separated CDX format. Some deployments (e.g. Arquivo.pt)
-          use this as the default when `output` is not specified.
+        - `cdxj` — `<urlkey> <timestamp> {json}` per line. Default in upstream pywb (not the
+          default here).
         - `link` — RFC 7089 Memento TimeMap, `application/link-format`.
       schema:
         type: string
-        enum: [cdxj, json, text, link]
+        enum: [text, json, cdxj, link]
+        default: text
 
     Filter:
       name: filter

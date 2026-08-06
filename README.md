@@ -1,7 +1,8 @@
-# pywb CDX(J) Server API — OpenAPI spec
+# Arquivo.pt CDX(J) Server API — OpenAPI spec
 
-OpenAPI 3.0 description of the CDX(J) Server API implemented by [pywb](https://github.com/webrecorder/pywb).
-See [`openapi.yaml`](./openapi.yaml).
+OpenAPI 3.0 description of the CDX(J) Server API exposed by [Arquivo.pt](https://arquivo.pt) at
+`/wayback/cdx` (e.g. https://arquivo.pt/wayback/cdx?url=publico.pt), backed by
+[pywb](https://github.com/webrecorder/pywb). See [`openapi.yaml`](./openapi.yaml).
 
 ## Hosting
 
@@ -11,8 +12,6 @@ is reachable at a stable URL:
 ```
 https://raw.githubusercontent.com/arquivo/cdxj-open-api/main/openapi.yaml
 ```
-
-(swap `arquivo/cdxj-open-api` / `main` if this ends up in a different org, repo, or default branch).
 
 ## View / import the spec
 
