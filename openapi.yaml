@@ -1,0 +1,467 @@
+openapi: 3.0.3
+info:
+  title: pywb CDX(J) Server API
+  version: "1.0.0"
+  description: |
+    The CDX(J) Server API implemented by [pywb](https://github.com/webrecorder/pywb) exposes an
+    index of captured web resources ("CDX" records) for a collection. It allows clients to look up,
+    filter, sort, and paginate captures for a given URL.
+
+    A record in the index describes one capture of a URL at a point in time, plus enough metadata
+    (mime type, HTTP status, content digest, and the location of the content in a WARC/CDX file) to
+    later retrieve the actual archived resource.
+
+    This specification documents the query endpoint mounted by pywb's front-end app
+    (`FrontEndApp.serve_cdx`, typically at `<collection>/cdx`) and the query semantics implemented in
+    `pywb.warcserver.index.query.CDXQuery` / `pywb.warcserver.index.cdxops`.
+
+    Notes on deployments: the collection path segment, endpoint name (default `cdx`, configurable via
+    `cdx_api_endpoint`), and the default `output` format are deployment-specific. Some public
+    deployments (e.g. Arquivo.pt) default `output` to `text`; upstream pywb's `IndexHandler` defaults
+    to `cdxj`.
+  contact:
+    name: pywb
+    url: https://github.com/webrecorder/pywb
+  license:
+    name: Apache-2.0
+    url: https://github.com/webrecorder/pywb/blob/main/LICENSE
+
+servers:
+  - url: "https://{host}"
+    variables:
+      host:
+        default: localhost:8080
+        description: Host (and optional port) of the pywb deployment.
+
+tags:
+  - name: CDX
+    description: Query the capture index for a collection.
+
+paths:
+  "/{coll}/cdx":
+    get:
+      operationId: queryCdx
+      tags: [CDX]
+      summary: Query the capture index
+      description: |
+        Look up captures matching `url`, optionally filtered, sorted, and paginated. Exactly one of
+        the supported `output` formats is returned; see the response content types below.
+      parameters:
+        - name: coll
+          in: path
+          required: true
+          schema:
+            type: string
+          description: >-
+            Name of the collection to query (the path segment configured for this deployment; use
+            the deployment's root collection identifier if it serves a single collection).
+          example: wayback
+        - $ref: "#/components/parameters/Url"
+        - $ref: "#/components/parameters/MatchType"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Closest"
+        - $ref: "#/components/parameters/Output"
+        - $ref: "#/components/parameters/Filter"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/CollapseTime"
+        - $ref: "#/components/parameters/ResolveRevisits"
+        - $ref: "#/components/parameters/AllowFuzzy"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/ShowNumPages"
+        - $ref: "#/components/parameters/ShowPagedIndex"
+      responses:
+        "200":
+          description: >-
+            Matching captures, or a page-count summary when `showNumPages=true`. The response body
+            format depends on `output`; see each content type below.
+          content:
+            text/x-cdxj:
+              schema:
+                type: string
+              description: >-
+                Default pywb format. One record per line: `<urlkey> <timestamp> <json-fields>`,
+                where json-fields is a JSON object of all fields except urlkey/timestamp.
+              example: |
+                pt,publico)/ 20200101120000 {"url": "https://publico.pt/", "mime": "text/html", "status": "200", "digest": "SHA1HASHVALUE1234567890ABCDEFGHIJK", "length": "10245", "offset": "778", "filename": "ARQUIVO-2020-01-01.warc.gz"}
+            text/x-ndjson:
+              schema:
+                $ref: "#/components/schemas/CDXRecordsNdjson"
+              description: One JSON object per line (`output=json`), newline-delimited.
+              example: |
+                {"urlkey": "pt,publico)/", "timestamp": "20200101120000", "url": "https://publico.pt/", "mime": "text/html", "status": "200", "digest": "SHA1HASHVALUE1234567890ABCDEFGHIJK", "length": "10245", "offset": "778", "filename": "ARQUIVO-2020-01-01.warc.gz"}
+            text/plain:
+              schema:
+                type: string
+              description: >-
+                Native/legacy space-separated CDX format (`output=text`). Field order matches the
+                underlying index (commonly the 11-field CDX format; see `CDXRecord` for field
+                meanings). May not be consistent across collections/deployments.
+              example: |
+                pt,publico)/ 20200101120000 https://publico.pt/ text/html 200 SHA1HASHVALUE1234567890ABCDEFGHIJK - - 10245 778 ARQUIVO-2020-01-01.warc.gz
+            application/link-format:
+              schema:
+                type: string
+              description: RFC 7089 Memento TimeMap (`output=link`).
+              example: |
+                <https://web.archive.example/>; rel="original",
+                <https://web.archive.example/timemap/link/https://publico.pt/>; rel="self"; type="application/link-format",
+                <https://web.archive.example/20200101120000/https://publico.pt/>; rel="memento"; datetime="Wed, 01 Jan 2020 12:00:00 GMT"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageInfo"
+              description: >-
+                Returned instead of capture records when `showNumPages=true`: a single JSON object
+                summarizing the page count for the query (only meaningful against a paginated/ZipNum
+                secondary index).
+        "400":
+          description: >-
+            Bad request — e.g. missing required `url` param, unsupported `output` value, or an
+            invalid `page`/`pageSize` value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                message: 'The "url" param is required'
+        "404":
+          description: No captures found matching the query.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                message: No Resource Found
+        "451":
+          description: Access to the matched capture(s) is blocked (access control / takedown).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: The underlying archive/index is not available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  parameters:
+    Url:
+      name: url
+      in: query
+      required: true
+      description: >-
+        The only required parameter. The URL to look up. A trailing `*` or leading `*.` is
+        equivalent to `matchType=prefix`/`matchType=domain` respectively.
+      schema:
+        type: string
+      example: publico.pt
+
+    MatchType:
+      name: matchType
+      in: query
+      required: false
+      description: |
+        How `url` is matched against the index:
+        - `exact` (default) — captures that match the URL exactly.
+        - `prefix` — captures whose URL begins with the given path, e.g. `http://sapo.pt/noticias/*`.
+        - `host` — captures for the given host, ignoring the path.
+        - `domain` — captures for the given host and all subdomains, e.g. `*.example.com`.
+      schema:
+        type: string
+        enum: [exact, prefix, host, domain]
+        default: exact
+
+    From:
+      name: from
+      in: query
+      required: false
+      description: >-
+        Restrict results to captures at or after this timestamp (inclusive). May be fewer than 14
+        digits, in which case it is padded down to the start of the given period (e.g. `2014` ->
+        `20140101000000`).
+      schema:
+        type: string
+        pattern: '^\d{1,14}$'
+      example: "2014"
+
+    To:
+      name: to
+      in: query
+      required: false
+      description: >-
+        Restrict results to captures at or before this timestamp (inclusive). May be fewer than 14
+        digits, in which case it is padded up to the end of the given period (e.g. `2014` ->
+        `20141231235959`).
+      schema:
+        type: string
+        pattern: '^\d{1,14}$'
+      example: "2014"
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: >-
+        Maximum number of index lines to return. Positive integer. A negative value requests the
+        last `n` results (implementation dependent). Defaults to 100000 if unset.
+      schema:
+        type: integer
+        default: 100000
+      example: 1500
+
+    Sort:
+      name: sort
+      in: query
+      required: false
+      description: |
+        Sort order for results:
+        - `reverse` — sort matches in reverse order. Recommended only for `matchType=exact`
+          queries, as reversing a large match set may be slow.
+        - `closest` — sort by absolute time distance to the `closest` timestamp. Requires
+          `closest` to also be set, and is only well-defined for `matchType=exact` queries.
+      schema:
+        type: string
+        enum: [reverse, closest]
+
+    Closest:
+      name: closest
+      in: query
+      required: false
+      description: >-
+        A 14-digit (or shorter) timestamp to sort results by closeness to, when `sort=closest` (or
+        simply when `closest` is set — it implies closest-sort regardless of `sort`).
+      schema:
+        type: string
+        pattern: '^\d{1,14}$'
+      example: "20200601000000"
+
+    Output:
+      name: output
+      in: query
+      required: false
+      description: |
+        Response format:
+        - `cdxj` — default in upstream pywb. `<urlkey> <timestamp> {json}` per line.
+        - `json` — one JSON object per line (newline-delimited JSON), recommended for analysis.
+        - `text` — native/legacy space-separated CDX format. Some deployments (e.g. Arquivo.pt)
+          use this as the default when `output` is not specified.
+        - `link` — RFC 7089 Memento TimeMap, `application/link-format`.
+      schema:
+        type: string
+        enum: [cdxj, json, text, link]
+
+    Filter:
+      name: filter
+      in: query
+      required: false
+      description: |
+        Filter results on a field. May be repeated; all filters must match (logical AND). Syntax:
+        `<fieldname>:[!][=|~]<expression>`.
+
+        | modifier(s) | example                     | meaning                                            |
+        |-------------|-----------------------------|-----------------------------------------------------|
+        | (none)      | `filter=mime:html`           | field "mime" contains the string "html"              |
+        | `=`         | `filter==mime:text/html`     | field "mime" is exactly "text/html"                  |
+        | `~`         | `filter=~mime:.*/html$`      | regex matches the beginning of field "mime"          |
+        | `!`         | `filter=!mime:html`          | field "mime" does not contain "html"                 |
+        | `!=`        | `filter=!=mime:text/html`    | field "mime" is not exactly "text/html"              |
+        | `!~`        | `filter=!~mime:.*/html`      | regex does not match the beginning of field "mime"   |
+
+        If no field name is given (`filter=<expression>` with no `:`), the filter is applied to the
+        entire raw record.
+      schema:
+        type: array
+        items:
+          type: string
+      style: form
+      explode: true
+      example: ["=mime:text/html", "!=status:200"]
+
+    Fields:
+      name: fields
+      in: query
+      required: false
+      description: >-
+        Comma-delimited list of field names to include in the output (all fields are returned if
+        omitted). Also accepted under the legacy alias `fl`. Standard fields:
+        `urlkey`, `timestamp`, `url`, `mime`, `status`, `digest`, `redirect`, `robotflags`,
+        `length`, `offset`, `filename` (plus `orig.length`, `orig.offset`, `orig.filename` when
+        `resolveRevisits=true`).
+      schema:
+        type: string
+      example: url,timestamp,status
+
+    CollapseTime:
+      name: collapseTime
+      in: query
+      required: false
+      description: >-
+        Collapse consecutive captures that share the same status code and whose timestamps agree
+        on the first N digits (e.g. `collapseTime=10` collapses captures from the same day),
+        keeping only the first of each run.
+      schema:
+        type: integer
+      example: 10
+
+    ResolveRevisits:
+      name: resolveRevisits
+      in: query
+      required: false
+      description: >-
+        If true, resolve `revisit` records against the original capture with the same payload
+        digest: the revisit's `mime`/`status` are filled in from the original, and
+        `orig.length`/`orig.offset`/`orig.filename` are added pointing at the original record's
+        location (`-` if not resolvable).
+      schema:
+        type: boolean
+        default: false
+
+    AllowFuzzy:
+      name: allowFuzzy
+      in: query
+      required: false
+      description: >-
+        If true, allow fuzzy/canonicalization matching rules (e.g. for query-string-heavy or
+        dynamically generated URLs) when no exact match is found.
+      schema:
+        type: boolean
+        default: false
+
+    Page:
+      name: page
+      in: query
+      required: false
+      description: >-
+        Zero-based page number to fetch, for collections backed by a paginated (ZipNum) secondary
+        index. Used together with `pageSize`.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: >-
+        Number of index blocks per page, for collections backed by a paginated (ZipNum) secondary
+        index. Defaults to the server's configured block size.
+      schema:
+        type: integer
+
+    ShowNumPages:
+      name: showNumPages
+      in: query
+      required: false
+      description: >-
+        If true, instead of returning capture records, return a single JSON object describing the
+        number of available pages for this query (see `PageInfo`). Only meaningful for collections
+        backed by a paginated (ZipNum) secondary index.
+      schema:
+        type: boolean
+        default: false
+
+    ShowPagedIndex:
+      name: showPagedIndex
+      in: query
+      required: false
+      description: >-
+        If true, return raw secondary-index (IDX) entries instead of resolved CDX records —
+        `urlkey`, `part`, `offset`, `length`, and optionally `lineno`. Advanced/internal use.
+      schema:
+        type: boolean
+        default: false
+
+  schemas:
+    CDXRecord:
+      type: object
+      description: >-
+        A single capture record. Exact fields present depend on the index format and the `fields`
+        param; `redirect` and `robotflags` are only present in the 9/10/11-field legacy CDX formats.
+      properties:
+        urlkey:
+          type: string
+          description: SURT-canonicalized form of `url`, used as the index sort key.
+          example: "pt,publico)/"
+        timestamp:
+          type: string
+          description: 14-digit capture timestamp (UTC, `YYYYMMDDhhmmss`).
+          example: "20200101120000"
+        url:
+          type: string
+          description: Original captured URL.
+          example: "https://publico.pt/"
+        mime:
+          type: string
+          description: Content (MIME) type of the captured resource, or `warc/revisit` for revisit records.
+          example: "text/html"
+        status:
+          type: string
+          description: HTTP status code of the capture, as a string. `-` if unknown (e.g. some redirects/errors).
+          example: "200"
+        digest:
+          type: string
+          description: Content digest (e.g. SHA-1) of the captured payload, used to detect/resolve revisits.
+        redirect:
+          type: string
+          description: Redirect target URL, `-` if not a redirect. Legacy CDX 9/10/11 formats only.
+        robotflags:
+          type: string
+          description: Robots-exclusion related flags, `-` if none. Legacy CDX 9/10/11 formats only.
+        length:
+          type: string
+          description: Length in bytes of the WARC/ARC record.
+        offset:
+          type: string
+          description: Byte offset of the WARC/ARC record within `filename`.
+        filename:
+          type: string
+          description: Name of the WARC/ARC file containing the record.
+        orig.length:
+          type: string
+          description: Present when `resolveRevisits=true`. Length of the original (non-revisit) record, or `-`.
+        orig.offset:
+          type: string
+          description: Present when `resolveRevisits=true`. Byte offset of the original record, or `-`.
+        orig.filename:
+          type: string
+          description: Present when `resolveRevisits=true`. Filename of the original record, or `-`.
+      required: [urlkey, timestamp, url]
+
+    CDXRecordsNdjson:
+      type: string
+      description: >-
+        Newline-delimited JSON: each line is a `CDXRecord` JSON object. Not a JSON array — parse
+        line by line.
+
+    PageInfo:
+      type: object
+      description: Page-count summary returned when `showNumPages=true`.
+      properties:
+        pages:
+          type: integer
+          description: Total number of pages available for this query.
+        pageSize:
+          type: integer
+          description: Number of index blocks per page (echoes `pageSize`, or the server default).
+        blocks:
+          type: integer
+          description: Total number of index blocks matched by this query.
+      required: [pages, pageSize, blocks]
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Human-readable error message.
+        errors:
+          type: object
+          description: Optional map of additional per-source error details.
+          additionalProperties: true
+      required: [message]
