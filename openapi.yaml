@@ -160,7 +160,6 @@ components:
       schema:
         type: string
         enum: [exact, prefix, host, domain]
-        default: exact
 
     From:
       name: from
@@ -197,7 +196,6 @@ components:
         last `n` results (implementation dependent). Defaults to 100000 if unset.
       schema:
         type: integer
-        default: 100000
       example: 1500
 
     Sort:
@@ -240,7 +238,6 @@ components:
       schema:
         type: string
         enum: [text, json, cdxj, link]
-        default: text
 
     Filter:
       name: filter
@@ -306,7 +303,6 @@ components:
         location (`-` if not resolvable).
       schema:
         type: boolean
-        default: false
 
     AllowFuzzy:
       name: allowFuzzy
@@ -317,7 +313,6 @@ components:
         dynamically generated URLs) when no exact match is found.
       schema:
         type: boolean
-        default: false
 
     Page:
       name: page
@@ -329,7 +324,6 @@ components:
       schema:
         type: integer
         minimum: 0
-        default: 0
 
     PageSize:
       name: pageSize
@@ -351,7 +345,6 @@ components:
         backed by a paginated (ZipNum) secondary index.
       schema:
         type: boolean
-        default: false
 
     ShowPagedIndex:
       name: showPagedIndex
@@ -362,7 +355,6 @@ components:
         `urlkey`, `part`, `offset`, `length`, and optionally `lineno`. Advanced/internal use.
       schema:
         type: boolean
-        default: false
 
   schemas:
     CDXRecord:
