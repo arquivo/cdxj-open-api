@@ -172,7 +172,6 @@ components:
       schema:
         type: string
         pattern: '^\d{1,14}$'
-      example: "2014"
 
     To:
       name: to
@@ -185,7 +184,6 @@ components:
       schema:
         type: string
         pattern: '^\d{1,14}$'
-      example: "2014"
 
     Limit:
       name: limit
@@ -196,7 +194,7 @@ components:
         last `n` results (implementation dependent). Defaults to 100000 if unset.
       schema:
         type: integer
-      example: 1500
+      example: 100
 
     Sort:
       name: sort
@@ -219,10 +217,10 @@ components:
       description: >-
         A 14-digit (or shorter) timestamp to sort results by closeness to, when `sort=closest` (or
         simply when `closest` is set — it implies closest-sort regardless of `sort`).
+        Example neirest to 2020-06-01 00:00:00 UTC is `20200601000000`.
       schema:
         type: string
         pattern: '^\d{1,14}$'
-      example: "20200601000000"
 
     Output:
       name: output
@@ -258,13 +256,14 @@ components:
 
         If no field name is given (`filter=<expression>` with no `:`), the filter is applied to the
         entire raw record.
+
+        Example: Adding both `filter==mime:text/html` and `filter=status:200` returns only HTML captures that did not return HTTP 200 OK.
       schema:
         type: array
         items:
           type: string
       style: form
       explode: true
-      example: ["=mime:text/html", "!=status:200"]
 
     Fields:
       name: fields
@@ -276,9 +275,10 @@ components:
         `urlkey`, `timestamp`, `url`, `mime`, `status`, `digest`, `redirect`, `robotflags`,
         `length`, `offset`, `filename` (plus `orig.length`, `orig.offset`, `orig.filename` when
         `resolveRevisits=true`).
+
+        Example: `fields=url,timestamp,status` returns only the URL, timestamp, and HTTP status code for each capture.
       schema:
         type: string
-      example: url,timestamp,status
 
     CollapseTime:
       name: collapseTime
@@ -288,9 +288,9 @@ components:
         Collapse consecutive captures that share the same status code and whose timestamps agree
         on the first N digits (e.g. `collapseTime=10` collapses captures from the same day),
         keeping only the first of each run.
+        Could be used to reduce the number of results for a URL that was captured many times in a short period.
       schema:
         type: integer
-      example: 10
 
     ResolveRevisits:
       name: resolveRevisits
