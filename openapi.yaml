@@ -69,7 +69,7 @@ paths:
               schema:
                 type: string
               description: >-
-                Default pywb format. One record per line: `<urlkey> <timestamp> <json-fields>`,
+                Default pywb format. One record per line: `{urlkey} {timestamp} {json-fields}`,
                 where json-fields is a JSON object of all fields except urlkey/timestamp.
               example: |
                 pt,publico)/ 20200101120000 {"url": "https://publico.pt/", "mime": "text/html", "status": "200", "digest": "SHA1HASHVALUE1234567890ABCDEFGHIJK", "length": "10245", "offset": "778", "filename": "ARQUIVO-2020-01-01.warc.gz"}
@@ -217,7 +217,7 @@ components:
       description: >-
         A 14-digit (or shorter) timestamp to sort results by closeness to, when `sort=closest` (or
         simply when `closest` is set — it implies closest-sort regardless of `sort`).
-        Example neirest to 2020-06-01 00:00:00 UTC is `20200601000000`.
+        Example nearest to 2020-06-01 00:00:00 UTC is `20200601000000`.
       schema:
         type: string
         pattern: '^\d{1,14}$'
@@ -230,7 +230,7 @@ components:
         Response format:
         - `text` — default for this API. Native/legacy space-separated CDX format.
         - `json` — one JSON object per line (newline-delimited JSON), recommended for analysis.
-        - `cdxj` — `<urlkey> <timestamp> {json}` per line. Default in upstream pywb (not the
+        - `cdxj` — `{urlkey} {timestamp} {json}` per line. Default in upstream pywb (not the
           default here).
         - `link` — RFC 7089 Memento TimeMap, `application/link-format`.
       schema:
@@ -243,25 +243,32 @@ components:
       required: false
       description: |
         Filter results on a field. May be repeated; all filters must match (logical AND). Syntax:
-        `<fieldname>:[!][=|~]<expression>`.
+        `{fieldname}:[!][=|~]{expression}`.
 
-        | modifier(s) | example                     | meaning                                            |
-        |-------------|-----------------------------|-----------------------------------------------------|
-        | (none)      | `filter=mime:html`           | field "mime" contains the string "html"              |
-        | `=`         | `filter==mime:text/html`     | field "mime" is exactly "text/html"                  |
-        | `~`         | `filter=~mime:.*/html$`      | regex matches the beginning of field "mime"          |
-        | `!`         | `filter=!mime:html`          | field "mime" does not contain "html"                 |
-        | `!=`        | `filter=!=mime:text/html`    | field "mime" is not exactly "text/html"              |
-        | `!~`        | `filter=!~mime:.*/html`      | regex does not match the beginning of field "mime"   |
+        This is an array parameter: each item you add becomes its own `filter=` query entry.
+        Below, enter just the `{fieldname}:[!][=|~]{expression}` part per item (e.g. `!mime:html`)
+        — do not type `filter=` yourself, or it will be sent as `filter=filter=!mime:html`.
 
-        If no field name is given (`filter=<expression>` with no `:`), the filter is applied to the
+        | modifier(s) | value to enter for this parameter | resulting query           | meaning                                            |
+        |-------------|------------------------------------|----------------------------|-----------------------------------------------------|
+        | (none)      | `mime:html`                         | `filter=mime:html`          | field "mime" contains the string "html"              |
+        | `=`         | `=mime:text/html`                   | `filter==mime:text/html`    | field "mime" is exactly "text/html"                  |
+        | `~`         | `~mime:.*/html$`                    | `filter=~mime:.*/html$`     | regex matches the beginning of field "mime"          |
+        | `!`         | `!mime:html`                        | `filter=!mime:html`         | field "mime" does not contain "html"                 |
+        | `!=`        | `!=mime:text/html`                  | `filter=!=mime:text/html`   | field "mime" is not exactly "text/html"              |
+        | `!~`        | `!~mime:.*/html`                    | `filter=!~mime:.*/html`     | regex does not match the beginning of field "mime"   |
+
+        If no field name is given (just `{expression}`, with no `:`), the filter is applied to the
         entire raw record.
 
-        Example: Adding both `filter==mime:text/html` and `filter=status:200` returns only HTML captures that did not return HTTP 200 OK.
+        Example: entering the array items `=mime:text/html` and `!=status:200` sends
+        `filter==mime:text/html&filter=!=status:200`, returning only HTML captures that did not
+        return HTTP 200 OK.
       schema:
         type: array
         items:
           type: string
+        default: []
       style: form
       explode: true
 

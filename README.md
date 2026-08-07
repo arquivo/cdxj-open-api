@@ -11,8 +11,9 @@ docker compose up
 ```
 
 Then open http://localhost:8081 — it serves this repo's `openapi.yaml` directly (including
-"Try it out", which sends real requests to `https://arquivo.pt`). Edits to `openapi.yaml` need
-just a browser refresh, no restart.
+"Try it out", which sends real requests to `https://arquivo.pt`). The container converts
+`openapi.yaml` to JSON once at startup, so after editing it run `docker compose restart
+swagger-ui` (a browser refresh alone won't pick up the change).
 
 ## Hosting
 
