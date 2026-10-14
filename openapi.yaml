@@ -5,7 +5,7 @@ info:
   description: |
     The CDX(J) Server API exposed by [Arquivo.pt](https://arquivo.pt) at `/wayback/cdx`, backed by
     [pywb](https://github.com/webrecorder/pywb)'s CDX(J) Server API. It allows clients to look up,
-    filter, sort, and paginate captures for a given URL in the Arquivo.pt archive.
+    filter, and sort captures for a given URL in the Arquivo.pt archive.
 
     A record in the index describes one capture of a URL at a point in time, plus enough metadata
     (mime type, HTTP status, content digest, and the location of the content in a WARC/CDX file) to
@@ -16,7 +16,8 @@ info:
     `pywb.warcserver.index.query.CDXQuery` / `pywb.warcserver.index.cdxops`, as deployed for the
     `wayback` collection at [arquivo.pt/wayback/cdx](https://arquivo.pt/wayback/cdx?url=publico.pt).
 
-    Note: Arquivo.pt's `output` default is `text`; upstream pywb's `IndexHandler` defaults to `cdxj`.
+    Arquivo.pt's index is a folder of CDXJ files (not a paginated ZipNum index), so the pagination
+    parameters (`page`, `pageSize`, `showNumPages`, `showPagedIndex`) are not currently supported.
   contact:
     name: Arquivo.pt
     url: https://arquivo.pt
@@ -39,8 +40,8 @@ paths:
       tags: [CDX]
       summary: Query the capture index
       description: |
-        Look up captures matching `url`, optionally filtered, sorted, and paginated. Exactly one of
-        the supported `output` formats is returned; see the response content types below.
+        Look up captures matching `url`, optionally filtered and sorted. Exactly one of the
+        supported `output` formats is returned; see the response content types below.
       parameters:
         - $ref: "#/components/parameters/Url"
         - $ref: "#/components/parameters/MatchType"
@@ -54,7 +55,6 @@ paths:
         - $ref: "#/components/parameters/Fields"
         - $ref: "#/components/parameters/CollapseTime"
         - $ref: "#/components/parameters/ResolveRevisits"
-        - $ref: "#/components/parameters/AllowFuzzy"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/ShowNumPages"
@@ -62,71 +62,60 @@ paths:
       responses:
         "200":
           description: >-
-            Matching captures, or a page-count summary when `showNumPages=true`. The response body
-            format depends on `output`; see each content type below.
+            Matching captures, in the format selected by `output`; see each content type below.
+            When nothing matches, the response is still `200`, with an empty body.
           content:
             text/x-cdxj:
               schema:
                 type: string
               description: >-
-                Default pywb format. One record per line: `{urlkey} {timestamp} {json-fields}`,
+                Default format. One record per line: `{urlkey} {timestamp} {json-fields}`,
                 where json-fields is a JSON object of all fields except urlkey/timestamp.
               example: |
-                pt,publico)/ 20200101120000 {"url": "https://publico.pt/", "mime": "text/html", "status": "200", "digest": "SHA1HASHVALUE1234567890ABCDEFGHIJK", "length": "10245", "offset": "778", "filename": "ARQUIVO-2020-01-01.warc.gz"}
+                pt,publico)/ 19961013180344 {"status": "200", "url": "http://www.publico.pt/palop/..", "filename": "AWP-Roteiro-20090510220155-00000.arc.gz", "length": "0", "mime": "text/html", "offset": "12355328", "digest": "HKNRKVY3JJIXTMHMYHM3ELU7XCGYMVHM", "collection": "Roteiro", "source": "cdx_folder:Roteiro.cdxj", "source-coll": "cdx_folder"}
             text/x-ndjson:
               schema:
                 $ref: "#/components/schemas/CDXRecordsNdjson"
               description: One JSON object per line (`output=json`), newline-delimited.
               example: |
-                {"urlkey": "pt,publico)/", "timestamp": "20200101120000", "url": "https://publico.pt/", "mime": "text/html", "status": "200", "digest": "SHA1HASHVALUE1234567890ABCDEFGHIJK", "length": "10245", "offset": "778", "filename": "ARQUIVO-2020-01-01.warc.gz"}
+                {"urlkey": "pt,publico)/", "timestamp": "19961013180344", "status": "200", "url": "http://www.publico.pt/palop/..", "filename": "AWP-Roteiro-20090510220155-00000.arc.gz", "length": "0", "mime": "text/html", "offset": "12355328", "digest": "HKNRKVY3JJIXTMHMYHM3ELU7XCGYMVHM", "collection": "Roteiro", "source": "cdx_folder:Roteiro.cdxj", "source-coll": "cdx_folder"}
             text/plain:
               schema:
                 type: string
               description: >-
-                Native/legacy space-separated CDX format (`output=text`). Field order matches the
-                underlying index (commonly the 11-field CDX format; see `CDXRecord` for field
-                meanings). May not be consistent across collections/deployments.
+                Space-separated field values (`output=text`), one record per line, in the order
+                the fields are stored in each record (see `CDXRecord` for field meanings). Neither
+                the order nor the set of fields is fixed — it can differ between records and
+                collections (e.g. `warc/revisit` records have no `status`) — so prefer
+                `output=json` for parsing.
               example: |
-                pt,publico)/ 20200101120000 https://publico.pt/ text/html 200 SHA1HASHVALUE1234567890ABCDEFGHIJK - - 10245 778 ARQUIVO-2020-01-01.warc.gz
+                pt,publico)/ 19961013180344 200 http://www.publico.pt/palop/.. AWP-Roteiro-20090510220155-00000.arc.gz 0 text/html 12355328 HKNRKVY3JJIXTMHMYHM3ELU7XCGYMVHM Roteiro cdx_folder:Roteiro.cdxj cdx_folder
             application/link-format:
               schema:
                 type: string
-              description: RFC 7089 Memento TimeMap (`output=link`).
+              description: >-
+                RFC 7089 Memento TimeMap (`output=link`): one `rel="memento"` entry per capture,
+                each with a `collection` attribute.
               example: |
-                <https://publico.pt/>; rel="original",
-                <https://arquivo.pt/wayback/timemap/link/https://publico.pt/>; rel="self"; type="application/link-format",
-                <https://arquivo.pt/wayback/20200101120000/https://publico.pt/>; rel="memento"; datetime="Wed, 01 Jan 2020 12:00:00 GMT"
+                <http://www.publico.pt/palop/..>; rel="memento"; datetime="Sun, 13 Oct 1996 18:03:44 GMT"; collection="cdx_folder",
+                <http://www.publico.pt/>; rel="memento"; datetime="Sun, 13 Oct 1996 18:27:12 GMT"; collection="cdx_folder"
             application/json:
               schema:
                 $ref: "#/components/schemas/PageInfo"
               description: >-
-                Returned instead of capture records when `showNumPages=true`: a single JSON object
-                summarizing the page count for the query (only meaningful against a paginated/ZipNum
-                secondary index).
+                **Not currently supported on Arquivo.pt** (`showNumPages` is ignored and capture
+                records are returned instead). Would be returned instead of capture records when
+                `showNumPages=true` against a paginated (ZipNum) index: a single JSON object
+                summarizing the page count for the query.
         "400":
           description: >-
-            Bad request — e.g. missing required `url` param, unsupported `output` value, or an
-            invalid `page`/`pageSize` value.
+            Bad request — e.g. missing required `url` param or unsupported `output` value.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
               example:
                 message: 'The "url" param is required'
-        "404":
-          description: No captures found matching the query.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                message: No Resource Found
-        "451":
-          description: Access to the matched capture(s) is blocked (access control / takedown).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: The underlying archive/index is not available.
           content:
@@ -190,10 +179,13 @@ components:
       in: query
       required: false
       description: >-
-        Maximum number of index lines to return. Positive integer. A negative value requests the
-        last `n` results (implementation dependent). Defaults to 100000 if unset.
+        Maximum number of index lines to return. Must be a positive integer; defaults to 100.
+        Values up to 10000 are recommended; 100000 is the maximum allowed value.
       schema:
         type: integer
+        minimum: 1
+        maximum: 100000
+        default: 100
       example: 100
 
     Sort:
@@ -228,14 +220,14 @@ components:
       required: false
       description: |
         Response format:
-        - `text` — default for this API. Native/legacy space-separated CDX format.
+        - `cdxj` — default. `{urlkey} {timestamp} {json}` per line.
         - `json` — one JSON object per line (newline-delimited JSON), recommended for analysis.
-        - `cdxj` — `{urlkey} {timestamp} {json}` per line. Default in upstream pywb (not the
-          default here).
+        - `text` — space-separated field values, one record per line.
         - `link` — RFC 7089 Memento TimeMap, `application/link-format`.
       schema:
         type: string
         enum: [text, json, cdxj, link]
+        default: cdxj
 
     Filter:
       name: filter
@@ -279,9 +271,10 @@ components:
       description: >-
         Comma-delimited list of field names to include in the output (all fields are returned if
         omitted). Also accepted under the legacy alias `fl`. Standard fields:
-        `urlkey`, `timestamp`, `url`, `mime`, `status`, `digest`, `redirect`, `robotflags`,
-        `length`, `offset`, `filename` (plus `orig.length`, `orig.offset`, `orig.filename` when
-        `resolveRevisits=true`).
+        `urlkey`, `timestamp`, `url`, `mime`, `status`, `digest`, `length`, `offset`, `filename`,
+        `collection`, `source`, `source-coll` (plus `orig.length`, `orig.offset`, `orig.filename`
+        when `resolveRevisits=true`). The same names can be used in `filter`, e.g.
+        `filter=collection:Roteiro`.
 
         Example: `fields=url,timestamp,status` returns only the URL, timestamp, and HTTP status code for each capture.
       schema:
@@ -311,23 +304,13 @@ components:
       schema:
         type: boolean
 
-    AllowFuzzy:
-      name: allowFuzzy
-      in: query
-      required: false
-      description: >-
-        If true, allow fuzzy/canonicalization matching rules (e.g. for query-string-heavy or
-        dynamically generated URLs) when no exact match is found.
-      schema:
-        type: boolean
-
     Page:
       name: page
       in: query
       required: false
       description: >-
-        Zero-based page number to fetch, for collections backed by a paginated (ZipNum) secondary
-        index. Used together with `pageSize`.
+        **Not currently supported on Arquivo.pt** (ignored). Zero-based page number to fetch, for
+        collections backed by a paginated (ZipNum) secondary index. Used together with `pageSize`.
       schema:
         type: integer
         minimum: 0
@@ -337,8 +320,9 @@ components:
       in: query
       required: false
       description: >-
-        Number of index blocks per page, for collections backed by a paginated (ZipNum) secondary
-        index. Defaults to the server's configured block size.
+        **Not currently supported on Arquivo.pt** (ignored). Number of index blocks per page, for
+        collections backed by a paginated (ZipNum) secondary index. Defaults to the server's
+        configured block size.
       schema:
         type: integer
 
@@ -347,9 +331,10 @@ components:
       in: query
       required: false
       description: >-
-        If true, instead of returning capture records, return a single JSON object describing the
-        number of available pages for this query (see `PageInfo`). Only meaningful for collections
-        backed by a paginated (ZipNum) secondary index.
+        **Not currently supported on Arquivo.pt** (ignored; capture records are returned). If
+        true, instead of returning capture records, return a single JSON object describing the
+        number of available pages for this query (see `PageInfo`). Only meaningful for
+        collections backed by a paginated (ZipNum) secondary index.
       schema:
         type: boolean
 
@@ -358,7 +343,8 @@ components:
       in: query
       required: false
       description: >-
-        If true, return raw secondary-index (IDX) entries instead of resolved CDX records —
+        **Not currently supported on Arquivo.pt** (ignored; capture records are returned). If
+        true, return raw secondary-index (IDX) entries instead of resolved CDX records —
         `urlkey`, `part`, `offset`, `length`, and optionally `lineno`. Advanced/internal use.
       schema:
         type: boolean
@@ -367,8 +353,8 @@ components:
     CDXRecord:
       type: object
       description: >-
-        A single capture record. Exact fields present depend on the index format and the `fields`
-        param; `redirect` and `robotflags` are only present in the 9/10/11-field legacy CDX formats.
+        A single capture record. Exact fields present depend on the record and the `fields`
+        param.
       properties:
         urlkey:
           type: string
@@ -376,7 +362,9 @@ components:
           example: "pt,publico)/"
         timestamp:
           type: string
-          description: 14-digit capture timestamp (UTC, `YYYYMMDDhhmmss`).
+          description: >-
+            Capture timestamp (UTC, `YYYYMMDDhhmmss`). Usually 14 digits; some older records have
+            fewer (e.g. `200011091615`).
           example: "20200101120000"
         url:
           type: string
@@ -388,17 +376,11 @@ components:
           example: "text/html"
         status:
           type: string
-          description: HTTP status code of the capture, as a string. `-` if unknown (e.g. some redirects/errors).
+          description: HTTP status code of the capture, as a string. May be missing, e.g. on `warc/revisit` records.
           example: "200"
         digest:
           type: string
           description: Content digest (e.g. SHA-1) of the captured payload, used to detect/resolve revisits.
-        redirect:
-          type: string
-          description: Redirect target URL, `-` if not a redirect. Legacy CDX 9/10/11 formats only.
-        robotflags:
-          type: string
-          description: Robots-exclusion related flags, `-` if none. Legacy CDX 9/10/11 formats only.
         length:
           type: string
           description: Length in bytes of the WARC/ARC record.
@@ -408,6 +390,18 @@ components:
         filename:
           type: string
           description: Name of the WARC/ARC file containing the record.
+        collection:
+          type: string
+          description: Arquivo.pt collection the capture belongs to.
+          example: "Roteiro"
+        source:
+          type: string
+          description: Index source the record was read from, as `{source-coll}:{index file}`.
+          example: "cdx_folder:Roteiro.cdxj"
+        source-coll:
+          type: string
+          description: Name of the index source (the configured CDXJ folder).
+          example: "cdx_folder"
         orig.length:
           type: string
           description: Present when `resolveRevisits=true`. Length of the original (non-revisit) record, or `-`.
@@ -427,7 +421,9 @@ components:
 
     PageInfo:
       type: object
-      description: Page-count summary returned when `showNumPages=true`.
+      description: >-
+        **Not currently supported on Arquivo.pt**. Page-count summary that would be returned when
+        `showNumPages=true` against a paginated (ZipNum) index.
       properties:
         pages:
           type: integer
